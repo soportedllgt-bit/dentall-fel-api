@@ -32,7 +32,7 @@ declare(strict_types=1);
  * @var string
  */
 $env = getenv('APP_ENV');
-$env = (is_string($env) && $env !== '') ? strtolower($env) : 'local';
+$env = (is_string($env) && $env !== '') ? strtolower(trim($env)) : 'local';
 
 /**
  * Definición de configuración por entorno.
@@ -166,6 +166,36 @@ $environments = [
 ];
 
 /**
+ * Entorno de desarrollo desplegado en un servidor con dominio propio.
+ *
+ * Se deriva de `produccion` en lugar de repetirse entero, y solo se le cambian
+ * los dos valores que lo separan de ella:
+ *
+ * 1. Los endpoints pasan a ser los de `feltestSB`. Es la diferencia crítica:
+ *    `produccion` apunta al servicio real, de modo que desplegar el código con
+ *    `APP_ENV=produccion` y credenciales de prueba emitiría facturas de verdad.
+ *    Aquí es imposible confundir un entorno con otro, porque cada uno lleva
+ *    escrito su propio destino.
+ * 2. Se conserva la lista blanca de CORS vacía y la ausencia de credenciales
+ *    por defecto que trae `produccion`, que es lo que corresponde a un servidor
+ *    alcanzable desde Internet.
+ *
+ * Lo que `desarrollo` no trae, a diferencia de `local`, es el detalle técnico
+ * en las respuestas: `App\Core\AppConfig::shouldDisplayErrors()` lo fuerza a
+ * `false` porque el servidor es público. Los errores siguen registrándose en el
+ * `error_log`, así que no se pierde el diagnóstico.
+ *
+ * @var array<string, array<string, mixed>>
+ */
+$desarrollo = $environments['produccion'];
+$desarrollo['fel'] = array_merge($desarrollo['fel'], [
+    'wsdl_url'     => 'https://pdte.guatefacturas.com/webservices63/feltestSB/Guatefac?wsdl',
+    'endpoint_url' => 'https://pdte.guatefacturas.com/webservices63/feltestSB/Guatefac',
+    'response_timeout' => 60,
+]);
+$environments['desarrollo'] = $desarrollo;
+
+/**
  * Selecciona la rama del entorno solicitado. Si `APP_ENV` contiene un valor
  * desconocido se degrada a `local`, nunca a `produccion`, para no exponer
  * detalles técnicos de forma accidental.
@@ -179,7 +209,10 @@ $active = $environments[$env] ?? $environments['local'];
  */
 $config = [
     'env'            => $env,
-    'display_errors' => ($env === 'produccion') ? false : true,
+    // `App\Core\AppConfig::shouldDisplayErrors()` lo fuerza a `false` en
+    // `produccion` y en `desarrollo` de todos modos; aquí solo se deja explícito
+    // para que el valor por defecto sea evidente al leer el archivo.
+    'display_errors' => !in_array($env, ['produccion', 'desarrollo'], true),
     'timezone'       => 'UTC',
     'db'             => $active['db'],
     'auth'           => $active['auth'],
@@ -202,13 +235,69 @@ $config = [
  * cuerpo vacío. Esa es la razón de que aquí vivan las credenciales y no en un
  * `.env`, que Apache serviría en texto plano.
  *
+ * Todas las secciones admiten sobreescritura, no solo `fel`. La merge es por
+ * clave de primer nivel: basta declarar en el archivo local únicamente lo que
+ * se quiere cambiar, y el resto de la sección conserva su valor por defecto.
+ *
+ * Se fusionan `fel`, `db`, `auth`, `cors` y `billing`. Las tres primeras son
+ * las que llevan credenciales, y son precisamente las que un hosting
+ * compartido no siempre permite fijar por variable de entorno: declarar aquí
+ * `db` y `auth` evita depender de que `SetEnv` sobreviva al handler de PHP.
+ *
+ * La prioridad la sigue teniendo la variable de entorno, que se aplica después
+ * en `App\Core\AppConfig`: por eso un servidor que sí permita fijarlas puede
+ * borrar este archivo sin tocar código.
+ *
  * @var array<string, mixed> $localConfig
  */
+/**
+ * Fusiona una sección de configuración con sus sobreescrituras locales.
+ *
+ * Se declara aquí y no en una clase porque este archivo no carga el autoloader
+ * a propósito: se puede incluir y examinar por separado, sin arrancar la
+ * aplicación, que es lo que hacen las pruebas y cualquier diagnóstico.
+ *
+ * Las sobreescrituras se aplican clave por clave, de modo que basta declarar en
+ * el archivo local lo que se quiere cambiar y el resto de la sección conserva
+ * su valor por defecto.
+ *
+ * Una cadena vacía se descarta en lugar de sobreescribir. Es la regla que hace
+ * segura la plantilla `config/config.local.example.php`, que se distribuye con
+ * todos sus campos en blanco: si una cadena vacía contara como sobreescritura,
+ * copiar la plantilla tal cual dejaría a '' `wsdl_url`, y el cliente SOAP caería
+ * a su valor por defecto en vez de usar el del entorno activo. El fallo es
+ * silencioso y peligroso, porque en `produccion` convertiría una emisión real
+ * en una de pruebas sin que nada lo delate.
+ *
+ * Un array vacío sí se aplica: `cors.allowed_origins => []` es una decisión
+ * deliberada —no permitir ningún origen—, no una omisión.
+ *
+ * @param array<string, mixed> $base      Sección con los valores por defecto.
+ * @param array<string, mixed> $overrides Sección con las sobreescrituras locales.
+ *
+ * @return array<string, mixed> Sección ya fusionada.
+ */
+$mergeSection = static function (array $base, array $overrides): array {
+    $aplicables = [];
+
+    foreach ($overrides as $clave => $valor) {
+        if ($valor === null || (is_string($valor) && trim($valor) === '')) {
+            continue;
+        }
+
+        $aplicables[$clave] = $valor;
+    }
+
+    return $aplicables === [] ? $base : array_merge($base, $aplicables);
+};
+
 $localFile = __DIR__ . '/config.local.php';
 $localConfig = is_file($localFile) && is_readable($localFile) ? (array) require $localFile : [];
 
-if (isset($localConfig['fel']) && is_array($localConfig['fel'])) {
-    $config['fel'] = array_merge($config['fel'], $localConfig['fel']);
+foreach (['fel', 'db', 'auth', 'cors', 'billing'] as $section) {
+    if (isset($localConfig[$section]) && is_array($localConfig[$section])) {
+        $config[$section] = $mergeSection($config[$section], $localConfig[$section]);
+    }
 }
 
 return $config;

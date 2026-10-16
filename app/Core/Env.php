@@ -37,6 +37,25 @@ final class Env
     public const DEFAULT_ENV = 'local';
 
     /**
+     * Entorno de desarrollo desplegado en un servidor real.
+     *
+     * Comparte los endpoints de pruebas con `local`, pero no expone los errores
+     * PHP en la respuesta ni deja credenciales de arranque por defecto. Es el
+     * entorno indicado para un servidor de desarrollo con dominio propio, que
+     * es accesible desde Internet y no desde la red interna del programador.
+     *
+     * @var string
+     */
+    public const ENV_DEVELOPMENT = 'desarrollo';
+
+    /**
+     * Entorno de producción: documentos reales contra el servicio real.
+     *
+     * @var string
+     */
+    public const ENV_PRODUCTION = 'produccion';
+
+    /**
      * La clase es puramente estática: se bloquea la instanciación.
      */
     private function __construct()
@@ -146,17 +165,27 @@ final class Env
     /**
      * Devuelve el nombre del entorno de ejecución activo.
      *
-     * Cualquier valor distinto de `produccion` se considera `local`, lo que
-     * garantiza que un `APP_ENV` mal escrito nunca desactive las medidas de
-     * protección de producción.
+     * Solo se reconocen tres nombres: `produccion`, `desarrollo` y `local`.
+     * Cualquier otro valor se degrada a `local`, que es el entorno más
+     * restrictivo en cuanto a credenciales por defecto, de modo que un
+     * `APP_ENV` mal escrito nunca deja la API apuntando al servicio real de
+     * facturación por accidente.
      *
-     * @return string `local` o `produccion`.
+     * @return string `local`, `desarrollo` o `produccion`.
      */
     public static function appEnv(): string
     {
         $value = strtolower(trim(self::string(self::KEY_APP_ENV, self::DEFAULT_ENV)));
 
-        return ($value === 'produccion') ? 'produccion' : 'local';
+        if ($value === self::ENV_PRODUCTION) {
+            return self::ENV_PRODUCTION;
+        }
+
+        if ($value === self::ENV_DEVELOPMENT) {
+            return self::ENV_DEVELOPMENT;
+        }
+
+        return self::DEFAULT_ENV;
     }
 
     /**

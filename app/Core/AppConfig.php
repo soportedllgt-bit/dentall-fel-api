@@ -26,6 +26,13 @@ final class AppConfig
     public const ENV_LOCAL = 'local';
 
     /**
+     * Nombre del entorno de desarrollo desplegado en un servidor real.
+     *
+     * @var string
+     */
+    public const ENV_DEVELOPMENT = 'desarrollo';
+
+    /**
      * Nombre del entorno de producción.
      *
      * @var string
@@ -50,7 +57,7 @@ final class AppConfig
     /**
      * Devuelve el nombre del entorno activo.
      *
-     * @return string `local` o `produccion`.
+     * @return string `local`, `desarrollo` o `produccion`.
      */
     public function getEnv(): string
     {
@@ -75,6 +82,28 @@ final class AppConfig
     public function isProduction(): bool
     {
         return $this->getEnv() === self::ENV_PRODUCTION;
+    }
+
+    /**
+     * Indica si la aplicación se ejecuta en el entorno de desarrollo desplegado
+     * en un servidor real.
+     *
+     * @return bool `true` si el entorno activo es `desarrollo`.
+     */
+    public function isDevelopment(): bool
+    {
+        return $this->getEnv() === self::ENV_DEVELOPMENT;
+    }
+
+    /**
+     * Indica si el entorno activo está expuesto a Internet y por tanto no debe
+     * revelar detalle técnico en las respuestas.
+     *
+     * @return bool `true` en `produccion` y en `desarrollo`.
+     */
+    public function isPublicFacing(): bool
+    {
+        return $this->isProduction() || $this->isDevelopment();
     }
 
     /**
@@ -197,7 +226,8 @@ final class AppConfig
      *     default_tax_percent: string, max_lines: int,
      *     order_code_max_length: int, customer_name_max: int,
      *     customer_address_max: int, line_description_max: int,
-     *     document_timezone: string
+     *     document_timezone: string,
+     *     processing_timeout: int, max_attempts: int
      * }
      *         Reglas de facturación resueltas.
      */
@@ -229,6 +259,13 @@ final class AppConfig
             'document_timezone'     => self::resolveTimezone(
                 (string) ($settings['document_timezone'] ?? 'America/Guatemala')
             ),
+            // Estas dos reglas las consumen `RetryPolicy::fromRules()` y
+            // `FacturacionService`. Se devuelven aquí porque los servicios leen
+            // exactamente este array: si no se exponen, sus valores por defecto
+            // internas prevailsen siempre y lo que se declare en la configuración
+            // no tiene efecto ninguno.
+            'processing_timeout'    => max(1, (int) ($settings['processing_timeout'] ?? 300)),
+            'max_attempts'          => max(1, (int) ($settings['max_attempts'] ?? 5)),
         ];
     }
 
@@ -320,14 +357,20 @@ final class AppConfig
     /**
      * Indica si los errores PHP deben mostrarse en la respuesta.
      *
-     * En producción siempre es `false`, independientemente de lo que diga el
-     * archivo de configuración, para evitar filtrar información interna.
+     * Se fuerzan a `false` en `produccion` y en `desarrollo`, sin importar lo que
+     * diga el archivo de configuración: en ambos la API está en un servidor
+     * alcanzable desde Internet, y un error 500 que devuelve el tipo de
+     * excepción, la ruta del archivo, el número de línea y la traza entrega al
+     * visitante el mapa interno de la aplicación.
+     *
+     * El diagnóstico no se pierde por ocultarlo: el manejador de excepciones
+     * escribe siempre en el `error_log` del servidor.
      *
      * @return bool `true` si se permite mostrar mensajes de error.
      */
     public function shouldDisplayErrors(): bool
     {
-        if ($this->isProduction()) {
+        if ($this->isPublicFacing()) {
             return false;
         }
 

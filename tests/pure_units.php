@@ -33,6 +33,7 @@ spl_autoload_register(static function (string $class) use ($appRoot): void {
 });
 
 use App\Core\AppConfig;
+use App\Core\Env;
 use App\Core\Request;
 use App\Core\Response;
 use App\Core\Router;
@@ -656,6 +657,228 @@ $assert(
     'reglas: una zona horaria inválida se descarta',
     (new AppConfig(['billing' => ['document_timezone' => 'Marte/Olympus']]))->getBillingConfig()['document_timezone'] === 'America/Guatemala'
 );
+
+// -----------------------------------------------------------------------------
+echo "\n== Entornos de ejecución ==\n";
+
+// Un servidor de desarrollo con dominio propio es público, así que no puede
+// comportarse como `local` (que filtra el detalle técnico) ni como `produccion`
+// (que apunta al servicio real de facturación). `desarrollo` es el tercero.
+
+$configReal = require dirname(__DIR__) . '/config/config.php';
+
+/**
+ * Ejecuta una función con `APP_ENV` fijado y restaura el valor previo.
+ *
+ * `getenv()` no tiene forma de "desfijar" una variable en PHP, de modo que se
+ * restaura el valor original o, si no había, se declara vacía.
+ *
+ * @param string|null $valor  Valor a fijar, o `null` para simular que no existe.
+ * @param callable    $accion Comprobación a ejecutar con la variable fijada.
+ *
+ * @return mixed
+ */
+$conEntorno = static function (?string $valor, callable $accion) {
+    $previo = getenv('APP_ENV');
+
+    if ($valor === null) {
+        putenv('APP_ENV');
+    } else {
+        putenv('APP_ENV=' . $valor);
+    }
+
+    try {
+        return $accion();
+    } finally {
+        if ($previo === false) {
+            putenv('APP_ENV');
+        } else {
+            putenv('APP_ENV=' . $previo);
+        }
+    }
+};
+
+$assert(
+    'entorno: sin APP_ENV se asume local',
+    $conEntorno(null, static function (): string {
+        return Env::appEnv();
+    }) === 'local'
+);
+$assert(
+    'entorno: APP_ENV=desarrollo se reconoce',
+    $conEntorno('desarrollo', static function (): string {
+        return Env::appEnv();
+    }) === 'desarrollo'
+);
+$assert(
+    'entorno: un APP_ENV mal escrito degrada a local y no a produccion',
+    $conEntorno('producción', static function (): string {
+        return Env::appEnv();
+    }) === 'local'
+);
+
+$assert(
+    'entorno: desarrollo se detecta como tal',
+    $conEntorno('desarrollo', static function () use ($configReal): bool {
+        return (new AppConfig($configReal))->isDevelopment();
+    }) === true
+);
+$assert(
+    'entorno: desarrollo no se confunde con produccion',
+    $conEntorno('desarrollo', static function () use ($configReal): bool {
+        return (new AppConfig($configReal))->isProduction();
+    }) === false
+);
+
+// El motivo de existir de `desarrollo`: en un servidor público, un error 500 no
+// puede devolver el tipo de excepción, la ruta del archivo y la traza.
+$assert(
+    'entorno: desarrollo no muestra el detalle de los errores',
+    $conEntorno('desarrollo', static function () use ($configReal): bool {
+        return (new AppConfig($configReal))->shouldDisplayErrors();
+    }) === false
+);
+$assert(
+    'entorno: produccion tampoco los muestra',
+    $conEntorno('produccion', static function () use ($configReal): bool {
+        return (new AppConfig($configReal))->shouldDisplayErrors();
+    }) === false
+);
+$assert(
+    'entorno: local sí los muestra, que es lo que se quiere en un escritorio',
+    $conEntorno('local', static function () use ($configReal): bool {
+        return (new AppConfig($configReal))->shouldDisplayErrors();
+    }) === true
+);
+
+$configDesarrollo = $conEntorno('desarrollo', static function () {
+    return require dirname(__DIR__) . '/config/config.php';
+});
+
+$assert(
+    'entorno: desarrollo apunta al sandbox',
+    strpos((string) $configDesarrollo['fel']['endpoint_url'], 'feltestSB') !== false,
+    (string) $configDesarrollo['fel']['endpoint_url']
+);
+$assert(
+    'entorno: desarrollo nunca apunta al servicio real de facturación',
+    strpos((string) $configDesarrollo['fel']['endpoint_url'], '/fel/') === false
+);
+$assert(
+    'entorno: produccion sí apunta al servicio real',
+    strpos((string) $conEntorno('produccion', static function () {
+        return require dirname(__DIR__) . '/config/config.php';
+    })['fel']['endpoint_url'], '/fel/') !== false
+);
+$assert(
+    'entorno: desarrollo no hereda las credenciales de arranque de local',
+    $conEntorno('desarrollo', static function () use ($configDesarrollo): bool {
+        $config = new AppConfig($configDesarrollo);
+
+        return $config->getAuthConfig()['username'] === '' && $config->getDbConfig()['username'] === '';
+    }) === true
+);
+$assert(
+    'entorno: desarrollo arranca sin lista blanca de CORS, nunca con comodín',
+    $configDesarrollo['cors']['allowed_origins'] === []
+);
+
+// -----------------------------------------------------------------------------
+echo "\n== Capa de sobreescritura local ==\n";
+
+// La fusión por sección es lo que permite desplegar en un hosting compartido,
+// donde `SetEnv` no siempre llega al proceso de PHP. Se ejercita el archivo
+// real, pero aislado: se copia a un directorio temporal junto con un
+// `config.local.php` de mentira, porque el archivo busca la capa local en su
+// propio `__DIR__`. Así no se toca la configuración real de la máquina.
+
+$tmpDir = sys_get_temp_dir() . '/fel-config-' . bin2hex(random_bytes(4));
+mkdir($tmpDir, 0700, true);
+copy(dirname(__DIR__) . '/config/config.php', $tmpDir . '/config.php');
+
+$configEn = static function (string $entorno, string $cuerpoLocal) use ($tmpDir): array {
+    $previo = getenv('APP_ENV');
+    putenv('APP_ENV=' . $entorno);
+    file_put_contents($tmpDir . '/config.local.php', $cuerpoLocal);
+
+    try {
+        return require $tmpDir . '/config.php';
+    } finally {
+        if ($previo === false) {
+            putenv('APP_ENV');
+        } else {
+            putenv('APP_ENV=' . $previo);
+        }
+    }
+};
+
+// La plantilla tal como se distribuye: todas las cadenas vacías.
+$plantilla = <<<'PHP'
+<?php
+return [
+    'db' => ['host' => '', 'port' => 3306, 'database' => '', 'username' => '', 'password' => ''],
+    'auth' => ['username' => '', 'password' => '', 'realm' => ''],
+    'fel' => [
+        'username' => '', 'password' => '', 'nit' => '', 'establishment' => '',
+        'basic_username' => '', 'basic_password' => '', 'wsdl_url' => '', 'endpoint_url' => '',
+    ],
+];
+PHP;
+
+// Este es el caso peligroso: la plantilla en blanco no debe degradar la
+// producción al sandbox. Si una cadena vacía contara como sobreescritura, el
+// `wsdl_url` real quedaría en '' y `GuatefacturasConfig` caería a su valor por
+// defecto, que es el sandbox. La aplicación emitiría documentos de prueba
+// creyendo que emite de verdad.
+$conPlantilla = $configEn('produccion', $plantilla);
+$assert(
+    'capa local: la plantilla en blanco no degrada produccion al sandbox',
+    strpos((string) $conPlantilla['fel']['endpoint_url'], '/fel/') !== false,
+    (string) $conPlantilla['fel']['endpoint_url']
+);
+$assert(
+    'capa local: la plantilla en blanco no borra las credenciales de auth del entorno',
+    (new AppConfig($conPlantilla))->getAuthConfig()['username'] === ''
+);
+
+$conDatos = $configEn('desarrollo', <<<'PHP'
+<?php
+return [
+    'db'     => ['host' => 'localhost', 'database' => 'api_fel', 'username' => 'app', 'password' => 'secreto'],
+    'auth'   => ['username' => 'apiuser', 'password' => 'apisecreto'],
+    'fel'    => ['username' => 'feltest', 'password' => 'feltest', 'nit' => 'C/F'],
+    'cors'   => ['allowed_origins' => ['https://pos.dentallgt.com']],
+];
+PHP);
+
+$assert(
+    'capa local: db se sobreescribe desde el archivo local',
+    $conDatos['db']['database'] === 'api_fel' && $conDatos['db']['host'] === 'localhost'
+);
+$assert(
+    'capa local: los campos no declarados conservan su valor por defecto',
+    $conDatos['db']['charset'] === 'utf8mb4'
+);
+$assert(
+    'capa local: auth se sobreescribe desde el archivo local',
+    $conDatos['auth']['username'] === 'apiuser'
+);
+$assert(
+    'capa local: se fusiona auth, no solo fel',
+    $conDatos['fel']['username'] === 'feltest' && $conDatos['auth']['password'] === 'apisecreto'
+);
+$assert(
+    'capa local: desarrollo sigue apuntando al sandbox con la capa local presente',
+    strpos((string) $conDatos['fel']['endpoint_url'], 'feltestSB') !== false
+);
+$assert(
+    'capa local: un array vacío sí sobreescribe',
+    $configEn('desarrollo', "<?php return ['cors' => ['allowed_origins' => []]];")['cors']['allowed_origins'] === []
+);
+
+unlink($tmpDir . '/config.local.php');
+unlink($tmpDir . '/config.php');
+rmdir($tmpDir);
 
 // -----------------------------------------------------------------------------
 echo "\n== Fecha del documento ==\n";

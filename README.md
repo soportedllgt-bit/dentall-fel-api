@@ -8,11 +8,16 @@
 | Componente | Versión mínima | Verificado en |
 |---|---|---|
 | PHP | 7.4 | 7.4.33 (Apache) y 8.2.12 (CLI) |
-| Extensiones | `pdo_mysql`, `mbstring`, `json` | `pdo_mysql` + `mbstring` |
+| Extensiones | `soap`, `pdo_mysql`, `mbstring`, `json` | `soap` + `pdo_mysql` + `mbstring` |
 | MySQL / MariaDB | 5.7 / 10.3 | MariaDB 10.4.8 |
 | Apache | 2.4 con `mod_rewrite` y `AllowOverride All` | 2.4.66 |
 
 No requiere Composer, npm ni ninguna otra dependencia.
+
+> **`soap` no es negociable.** Sin ella la API sirve `/api/items` con normalidad
+> y falla solo al facturar, con un error de clase inexistente que no apunta al
+> módulo que falta. Compruébelo en el servidor antes de desplegar nada:
+> `php -m | grep soap`, o desde cPanel en *Select PHP Version → Extensions*.
 
 ---
 
@@ -41,14 +46,14 @@ Para el caso de XAMPP no hay que tocar `httpd.conf`:
 
 ### 2.3. Variables de entorno (opcional)
 
-En `local` todo funciona sin configurar nada. Para `produccion` es **obligatorio**
-definir credenciales por entorno:
+En `local` todo funciona sin configurar nada. Para un servidor desplegado
+(`desarrollo` o `produccion`) las credenciales pueden fijarse por entorno:
 
 ```bash
-set APP_ENV=produccion
+set APP_ENV=desarrollo
 set DB_HOST=127.0.0.1
 set DB_PORT=3306
-set DB_NAME=fel_dentall_api
+set DB_NAME=api_fel
 set DB_USER=usuario_app
 set DB_PASS=clave_secreta
 set API_USER=usuario_api
@@ -56,27 +61,107 @@ set API_PASS=clave_api
 set CORS_ALLOWED_ORIGINS=https://app.ejemplo.com,https://admin.ejemplo.com
 ```
 
-La precedencia es: **variable de entorno** > `config/config.php` > valor por
-defecto de la llamada.
+La precedencia es: **variable de entorno** > `config/config.local.php` >
+`config/config.php` > valor por defecto de la llamada.
+
+### 2.4. Alternativa a las variables de entorno: `config.local.php`
+
+En un hosting compartido no siempre es posible fijar variables de entorno de
+forma fiable, o el `SetEnv` del `.htaccess` no llega al proceso de PHP según el
+handler. Para eso está `config/config.local.php`, excluido por `.gitignore`:
+
+```bash
+copy config\config.local.example.php config\config.local.php
+```
+
+Acepta las secciones `fel`, `db`, `auth`, `cors` y `billing`, y se fusionan
+clave por clave: basta declarar lo que cambia y el resto conserva su valor por
+defecto.
+
+**Una cadena vacía no sobreescribe nada.** La plantilla se distribuye con todos
+sus campos en blanco y esa es la forma natural de usarla, así que un campo sin
+llenar deja el valor del entorno activo intacto. Si una cadena vacía contara como
+sobreescritura, copiar la plantilla sin rellenar dejaría `wsdl_url` en `''` y el
+cliente SOAP caería a su propio valor por defecto: en `produccion` eso
+convertiría una emisión real en una de pruebas, sin ningún síntoma visible.
+
+Un array vacío sí cuenta como valor: `cors.allowed_origins => []` significa "no
+permitir ningún origen", que es una decisión, no una omisión.
+
+### 2.5. Despliegue en hosting compartido (cPanel)
+
+El orden importa: un paso que falla detiene el siguiente.
+
+| # | Paso | Dónde | Nota |
+|---|---|---|---|
+| 1 | Verificar `soap`, `pdo_mysql`, `mbstring` | *Select PHP Version → Extensions* | Bloqueante: sin `soap` no hay facturación |
+| 2 | Obtener el código | *Git Version Control → Clone* | Alternativa sin git: ZIP → File Manager |
+| 3 | Apuntar el subdominio a `…/public` | *Domains → Subdomains* | **El document root debe ser `public/`** |
+| 4 | Activar SSL | *SSL/TLS Status* | Sin HTTPS el Basic Auth viaja en claro |
+| 5 | Importar el esquema | phpMyAdmin → Importar | Ver la nota sobre el nombre de la base |
+| 6 | Crear `config/config.local.php` | File Manager | Nunca desde el repositorio |
+| 7 | Comprobar | `curl -i -u usuario:clave https://…/api/items` | Un 404 aquí es `mod_rewrite` |
+
+El document root debe ser `public/` y no la raíz del proyecto. Así `app/`,
+`config/`, `sql/` y `tests/` quedan **fuera del servidor web**: el
+`.htaccess` de la raíz ni siquiera se evalúa y `config.local.php` no es
+accesible por HTTP. Si además se dejara el document root en la raíz, ese
+`.htaccess` pasa a ser la única barrera y dependería de que `AllowOverride`
+esté activo en toda la ruta.
+
+**El nombre de la base de datos.** `sql/schema.sql` y las cuatro migraciones
+llevan escrito `USE fel_dentall_api;`, y el esquema empieza con
+`CREATE DATABASE IF NOT EXISTS`. En un hosting compartido casi nunca se tiene
+permiso para crear bases, y un `USE` a una base inexistente aborta el
+importación. Si la base se llama de otra forma:
+
+1. Abra los cuatro `.sql` y sustituya `fel_dentall_api` por el nombre real.
+2. Comente el `CREATE DATABASE` de `sql/schema.sql` (líneas 25-29).
+3. El nombre **también** va en la configuración: sección `db.database`.
+
+Los cinco archivos son idempotentes, de modo que reimportarlos no rompe nada.
+Al terminar deben existir `items`, `gf_orders` y `schema_migrations`.
 
 ---
 
 ## 3. Entornos
 
-Definidos por `APP_ENV`. Cualquier valor distinto de `produccion` se trata como
+Definidos por `APP_ENV`, que reconoce tres valores. Cualquier otro se trata como
 `local`: un `APP_ENV` mal escrito nunca desactiva las protecciones.
 
-| | `local` | `produccion` |
-|---|---|---|
-| `display_errors` | `true` | `false` (forzado) |
-| Detalle en errores 500 | tipo, archivo, línea, traza | solo mensaje genérico |
-| Credenciales BD | `root` / vacío | variables de entorno |
-| Credenciales Auth | `admin` / `admin123` | variables de entorno |
-| Orígenes CORS | `localhost:5173`, `localhost:3000`, etc. | lista vacía |
-| Registro de errores | pantalla + `error_log` | solo `error_log` |
+| | `local` | `desarrollo` | `produccion` |
+|---|---|---|---|
+| Uso | escritorio del programador | servidor con dominio propio | producción |
+| `display_errors` | `true` | `false` (forzado) | `false` (forzado) |
+| Detalle en errores 500 | tipo, archivo, línea, traza | solo mensaje genérico | solo mensaje genérico |
+| Endpoints FEL | sandbox `feltestSB` | sandbox `feltestSB` | **servicio real** |
+| Credenciales BD | `root` / vacío | `config.local.php` o entorno | `config.local.php` o entorno |
+| Credenciales Auth | `admin` / `admin123` | `config.local.php` o entorno | `config.local.php` o entorno |
+| Orígenes CORS | `localhost:5173`, `localhost:3000`, etc. | lista vacía | lista vacía |
+| Registro de errores | pantalla + `error_log` | solo `error_log` | solo `error_log` |
+
+### Por qué existe `desarrollo`
+
+Un servidor de desarrollo con dominio propio es público, y eso lo vuelve
+incompatible con los otros dos entornos:
+
+- `local` filtra el detalle técnico de un error 500: tipo de excepción, ruta del
+  archivo, número de línea y traza. Es lo que se quiere en un escritorio y lo
+  que no se puede dejar en un servidor alcanzable desde Internet.
+- `produccion` resuelve ese problema, pero apunta al **servicio real** de
+  facturación. Desplegar el código con `APP_ENV=produccion` y credenciales de
+  pruebas emitiría facturas de verdad.
+
+`desarrollo` combina lo uno con lo otro: endpoints de sandbox y sin detalle
+técnico en las respuestas. No es una tercera opción intermedia, es la única
+correcta para un servidor desplegado que emite documentos de prueba.
+
+> **Nunca use `APP_ENV=produccion` con credenciales de `feltest` esperando que
+> apunten al sandbox.** Si lo hace, emite contra la SAT.
 
 `ExceptionHandler` **siempre** escribe en `error_log`, también en producción:
-el operador puede diagnosticar el fallo sin que el cliente reciba nada.
+el operador puede diagnosticar el fallo sin que el cliente reciba nada. Ocultar
+el error de la respuesta no lo elimina del registro.
 
 ---
 
@@ -423,6 +508,18 @@ set API_USER=admin
 set API_PASS=admin123
 ```
 
+> **`http_matrix.php` necesita dos cosas, no solo la URL:** además de las
+> peticiones HTTP, abre una conexión PDO a la base de datos para sembrar y
+> verificar filas. Si no puede conectarse, **imprime un aviso y sale con código
+> `0` omitiendo las 104 aserciones** — un falso verde que parece un éxito.
+> Contra un servidor remoto hay que habilitar *Remote MySQL* en cPanel, añadir
+> la IP pública de quien ejecuta la prueba a la lista blanca y apuntar `DB_HOST`,
+> `DB_NAME`, `DB_USER` y `DB_PASS` a la base del servidor. Compruebe que la
+> suite imprime el recuento de aserciones y no el aviso de omisión.
+
+En un hosting compartido sin SSH no hay PHP CLI, así que las suites se ejecutan
+siempre desde el equipo del programador, nunca en el servidor.
+
 Comprobación de sintaxis contra el PHP 7.4 real (el `php.exe` de XAMPP Lite solo
 arranca si se le pasan las extensiones a mano, porque su `php.ini` usa
 `${XAMPP_LITE_ROOT}`):
@@ -446,7 +543,7 @@ Estado actual:
 
 | Suite | Resultado | Requiere red |
 |---|---|---|
-| `tests/pure_units.php` | 244 / 244 | No |
+| `tests/pure_units.php` | 265 / 265 | No |
 | `tests/contingencia.php` | 214 / 214 | No |
 | `tests/http_matrix.php` | 104 / 104 | Apache local |
 | `tests/guard_confidencialidad.php` | 51 / 51 | No |
