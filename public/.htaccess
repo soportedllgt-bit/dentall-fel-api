@@ -4,22 +4,33 @@
 #
 # Está DESACTIVADO a propósito. Si se activara en el repositorio, el entorno de
 # trabajo local del programador dejaría de mostrar el detalle de los errores, que
-# es justo lo que se necesita en un escritorio. En un servidor desplegado hay que
-# activarlo, y hay tres formas, de la más fiable a la menos fiable:
+# es justo lo que se necesita en un escritorio.
 #
-# 1. cPanel → Select PHP Version → Options → Environment Variables
-#    APP_ENV = desarrollo
-#    Escribe en el pool de PHP, así que `getenv()` la ve siempre. Es la
-#    recomendada: no toca ningún archivo del repositorio y sobrevive a un
-#    `git pull` o a un redeploy.
+# Para un servidor desplegado hay tres formas, y la diferencia entre ellas no es
+# de estilo sino de qué se pierde en un despliegue posterior:
 #
-# 2. Esta misma instruccion, descomentada, en el servidor:
+# 1. `env` en config/config.local.php  — RECOMENDADA
+#        'env' => 'desarrollo',
+#    No depende de Apache, no necesita `mod_env` y sobrevive a los despliegues:
+#    config.local.php está en `.gitignore`, así que ningún `git pull` lo toca.
+#    Es además el archivo que hay que crear igualmente para las credenciales.
+#
+# 2. Esta instrucción, descomentada, en el servidor:
 #        SetEnv APP_ENV desarrollo
-#    Apache expone lo que fija con `SetEnv` en `$_SERVER`, y `App\Core\Env` lo
+#    Apache publica en `$_SERVER` lo que fija con `SetEnv`, y `App\Core\Env` lo
 #    lee desde ahí, de modo que funciona incluso con PHP como FPM o LSAPI, donde
-#    `getenv()` no lo vería. El precio es que un redeploy sobrescribe el archivo.
+#    `getenv()` no lo vería. Pero ESTE ARCHIVO ES VERSIONADO: cada despliegue lo
+#    sobrescribe y habría que descomentar la línea de nuevo.
 #
-# 3. La variable DB_* / API_* del §2.3 del README, por el mismo mecanismo.
+# 3. cPanel → Select PHP Version → Options → Environment Variables:
+#        APP_ENV = desarrollo
+#    Escribe en el pool de PHP, así que `getenv()` la ve siempre, y también
+#    sobrevive a los despliegues. No está disponible en todos los hostings: si su
+#    panel no lo ofrece, use la opción 1 o la 2.
+#
+# En las tres, la variable de entorno tiene prioridad sobre la clave `env` del
+# archivo local, de modo que cambiar de entorno en caliente es posible si el
+# panel lo permite.
 #
 # Valores: `local`, `desarrollo` o `produccion`. Cualquier otro se degrada a
 # `local`. NUNCA `produccion` con credenciales de feltest: `produccion` apunta al

@@ -24,7 +24,38 @@ declare(strict_types=1);
  */
 
 /**
+ * Capa de sobreescritura local.
+ *
+ * Se carga primero, antes de resolver el entorno, porque `env` se declara aquí.
+ * `config/config.local.php` contiene credenciales reales y está excluido por
+ * `.gitignore`. Si no está presente, la aplicación funciona igualmente con los
+ * valores por defecto (que para el proveedor son vacíos, de modo que fallará
+ * con un error de configuración explícito y no con un error de SOAP críptico).
+ *
+ * Nótese que un archivo PHP cuyo único contenido es un `return` no produce
+ * ninguna salida si se solicita por HTTP: el servidor lo ejecuta y devuelve el
+ * cuerpo vacío. Esa es la razón de que aquí vivan las credenciales y no en un
+ * `.env`, que Apache serviría en texto plano.
+ *
+ * @var array<string, mixed> $localConfig
+ */
+$localFile = __DIR__ . '/config.local.php';
+$localConfig = is_file($localFile) && is_readable($localFile) ? (array) require $localFile : [];
+
+/**
  * Nombre del entorno activo.
+ *
+ * Se resuelve en este orden:
+ *
+ * 1. La variable de entorno `APP_ENV`, si existe de verdad, a través de
+ *    `App\Core\Env`.
+ * 2. La clave `env` de `config/config.local.php`, si declara un nombre válido.
+ * 3. `local`.
+ *
+ * La variable de entorno gana sobre el archivo local para que un operador
+ * pueda cambiar de entorno sin tocar el disco: pasar de `desarrollo` a
+ * `produccion` tiene que ser una operación de un segundo, no una edición de
+ * archivo en un servidor al que se entra por FTP.
  *
  * Se delega en `App\Core\Env` y no en un `getenv()` directo a propósito.
  * `Env::get()` consulta `getenv()`, `$_ENV` y `$_SERVER`, y esa tercera fuente
@@ -37,6 +68,17 @@ declare(strict_types=1);
  * con `root` sin contraseña y `admin`/`admin123` por defecto, y con el detalle
  * técnico de los errores visible en las respuestas.
  *
+ * La clave `env` del archivo local cubre el caso del hosting que no ofrece
+ * forma ninguna de fijar variables de entorno y cuyo `.htaccess` no puede
+ *Ledebido a que un redeploy sobrescriba el archivo. Al estar en `.gitignore`,
+ * sobrevive a un `git pull`.
+ *
+ * Un nombre desconocido nunca se acepta: se degrada a `local`, de modo que una
+ * errata en `env` no pueda dejar la API apuntando al servicio real de
+ * facturación. `produccion` solo se alcanza escribiendo exactamente esa palabra,
+ * y un despliegue con credenciales de `feltest` que llegase hasta allí emitiría
+ * facturas de verdad.
+ *
  * `Env` no tiene dependencias y este archivo lo carga él mismo con
  * `require_once`, en lugar de fiarse del autoloader: `config.php` se incluye y
  * se examina por separado, sin arrancar la aplicación, y debe seguir siendo
@@ -48,7 +90,19 @@ declare(strict_types=1);
 if (!class_exists('App\Core\Env', true)) {
     require_once __DIR__ . '/../app/Core/Env.php';
 }
-$env = App\Core\Env::appEnv();
+
+$envConocidos = [App\Core\Env::ENV_LOCAL, App\Core\Env::ENV_DEVELOPMENT, App\Core\Env::ENV_PRODUCTION];
+$envLocal     = isset($localConfig['env']) && is_string($localConfig['env'])
+    ? strtolower(trim($localConfig['env']))
+    : '';
+
+if (App\Core\Env::get(App\Core\Env::KEY_APP_ENV) !== null) {
+    $env = App\Core\Env::appEnv();
+} elseif (in_array($envLocal, $envConocidos, true)) {
+    $env = $envLocal;
+} else {
+    $env = App\Core\Env::DEFAULT_ENV;
+}
 
 /**
  * Definición de configuración por entorno.
@@ -304,11 +358,8 @@ $mergeSection = static function (array $base, array $overrides): array {
         $aplicables[$clave] = $valor;
     }
 
-    return $aplicables === [] ? $base : array_merge($base, $aplicables);
+return $aplicables === [] ? $base : array_merge($base, $aplicables);
 };
-
-$localFile = __DIR__ . '/config.local.php';
-$localConfig = is_file($localFile) && is_readable($localFile) ? (array) require $localFile : [];
 
 foreach (['fel', 'db', 'auth', 'cors', 'billing'] as $section) {
     if (isset($localConfig[$section]) && is_array($localConfig[$section])) {

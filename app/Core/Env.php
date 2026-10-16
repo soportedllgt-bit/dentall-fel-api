@@ -30,11 +30,18 @@ final class Env
     public const KEY_APP_ENV = 'APP_ENV';
 
     /**
+     * Nombre del entorno de trabajo del programador.
+     *
+     * @var string
+     */
+    public const ENV_LOCAL = 'local';
+
+    /**
      * Entorno utilizado cuando `APP_ENV` no está definido.
      *
      * @var string
      */
-    public const DEFAULT_ENV = 'local';
+    public const DEFAULT_ENV = self::ENV_LOCAL;
 
     /**
      * Entorno de desarrollo desplegado en un servidor real.

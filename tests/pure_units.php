@@ -800,7 +800,13 @@ mkdir($tmpDir . '/app/Core', 0700, true);
 copy(dirname(__DIR__) . '/config/config.php', $tmpDir . '/config/config.php');
 copy(dirname(__DIR__) . '/app/Core/Env.php', $tmpDir . '/app/Core/Env.php');
 
-$configEn = static function (string $entorno, string $cuerpoLocal, bool $soloEnServer = false) use ($tmpDir): array {
+$configEnTmp = static function (
+    string $tmpDir,
+    string $entorno,
+    string $cuerpoLocal,
+    bool $soloEnServer = false,
+    ?string $porEntorno = null
+): array {
     $previo = getenv('APP_ENV');
     putenv('APP_ENV');
     unset($_ENV['APP_ENV'], $_SERVER['APP_ENV']);
@@ -809,8 +815,10 @@ $configEn = static function (string $entorno, string $cuerpoLocal, bool $soloEnS
         // Reproduce lo que hace `SetEnv APP_ENV desarrollo` en un `.htaccess`:
         // la variable llega en `$_SERVER`, no en el entorno del proceso.
         $_SERVER['APP_ENV'] = $entorno;
-    } elseif ($entorno !== '') {
-        putenv('APP_ENV=' . $entorno);
+    }
+
+    if ($porEntorno !== null) {
+        putenv('APP_ENV=' . $porEntorno);
     }
 
     file_put_contents($tmpDir . '/config/config.local.php', $cuerpoLocal);
@@ -825,6 +833,26 @@ $configEn = static function (string $entorno, string $cuerpoLocal, bool $soloEnS
         }
         unset($_ENV['APP_ENV'], $_SERVER['APP_ENV']);
     }
+};
+
+// Entorno publicado en el entorno del proceso, como hace "Environment
+// Variables" del panel, o solo en `$_SERVER` con `$soloEnServer = true`, como
+// hace un `SetEnv` del `.htaccess`.
+$configEn = static function (string $entorno, string $cuerpoLocal, bool $soloEnServer = false) use ($tmpDir, $configEnTmp): array {
+    $porEntorno = $soloEnServer || $entorno === '' ? null : $entorno;
+
+    return $configEnTmp($tmpDir, $entorno, $cuerpoLocal, $soloEnServer, $porEntorno);
+};
+
+// Lo mismo, pero permitiendo además fijarla con `putenv()`, que es lo que hace
+// "Environment Variables" del panel de cPanel.
+$configEnLocal = static function (
+    string $entorno,
+    string $cuerpoLocal,
+    bool $soloEnServer = false,
+    ?string $porEntorno = null
+) use ($tmpDir, $configEnTmp): array {
+    return $configEnTmp($tmpDir, $entorno, $cuerpoLocal, $soloEnServer, $porEntorno);
 };
 
 // La plantilla tal como se distribuye: todas las cadenas vacías.
@@ -930,6 +958,46 @@ $sinNada = $configEn('', "<?php return [];");
 $assert(
     'htaccess: sin APP_ENV se resuelve local, no produccion',
     $sinNada['env'] === 'local'
+);
+
+// -----------------------------------------------------------------------------
+echo "\n== Entorno declarado en config.local.php ==\n";
+
+// El caso del hosting que no ofrece "Environment Variables" en su panel y cuyo
+// `.htaccess` se sobrescribe en cada despliegue. La clave `env` del archivo
+// local cubre ambos problemas: no depende de Apache y está en `.gitignore`.
+
+$conEnvLocal = $configEnLocal('desarrollo', "<?php return ['env' => 'desarrollo'];");
+$assert(
+    'env local: la clave env del archivo local selecciona desarrollo',
+    $conEnvLocal['env'] === 'desarrollo',
+    'env=' . $conEnvLocal['env']
+);
+$assert(
+    'env local: y toma los endpoints del sandbox',
+    strpos((string) $conEnvLocal['fel']['endpoint_url'], 'feltestSB') !== false
+);
+$assert(
+    'env local: y no arranca con las credenciales por defecto de local',
+    (new AppConfig($conEnvLocal))->getAuthConfig()['username'] === ''
+        && (new AppConfig($conEnvLocal))->shouldDisplayErrors() === false
+);
+
+$assert(
+    'env local: un valor desconocido degrada a local, nunca a produccion',
+    $configEnLocal('produccion_x', "<?php return ['env' => 'produccion_x'];")['env'] === 'local'
+);
+$assert(
+    'env local: un valor en blanco se ignora y se queda en local',
+    $configEnLocal('', "<?php return ['env' => '   '];")['env'] === 'local'
+);
+$assert(
+    'env local: si no se declara la clave, sigue el valor de la variable de entorno',
+    $configEnLocal('desarrollo', "<?php return [];", false, 'produccion')['env'] === 'produccion'
+);
+$assert(
+    'env local: SetEnv en .htaccess tiene prioridad sobre la clave env',
+    $configEnLocal('desarrollo', "<?php return ['env' => 'local'];", true)['env'] === 'desarrollo'
 );
 
 unlink($tmpDir . '/config/config.local.php');

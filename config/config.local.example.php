@@ -28,6 +28,26 @@ declare(strict_types=1);
  */
 
 return [
+    // Entorno de ejecución: `local`, `desarrollo` o `produccion`.
+    //
+    // En un escritorio no hace falta declararlo: sin esta clave se asume `local`.
+    //
+    // En un servidor desplegado SÍ hace falta, y esta es la forma recomendada de
+    // declararlo cuando el hosting no ofrece forma de fijar variables de
+    // entorno (cPanel sin "Environment Variables"), porque no depende de Apache
+    // ni se pierde en un redeploy: este archivo está en `.gitignore`, de modo que
+    // un `git pull` no lo toca. Un `SetEnv` en `public/.htaccess` sí funciona,
+    // pero el archivo es versionado y cada despliegue lo sobrescribe.
+    //
+    // Valores: `desarrollo` apunta al sandbox de pruebas y no muestra el detalle
+    // de los errores; `produccion` apunta al SERVICIO REAL y emite contra la
+    // SAT. Un valor desconocido se degrada a `local`, así que una errata aquí no
+    // puede provocar una emisión real por accidente.
+    //
+    // Si el panel sí permite variables de entorno, `APP_ENV` tiene prioridad
+    // sobre esta clave: permite cambiar de entorno sin editar ningún archivo.
+    'env' => '',
+
     'db' => [
         // En `local` los valores por defecto son `root` sin contraseña, que solo
         // funcionan en un equipo propio. Un servidor desplegado necesita siempre

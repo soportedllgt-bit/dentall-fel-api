@@ -128,20 +128,26 @@ Al terminar deben existir `items`, `gf_orders` y `schema_migrations`.
 
 Sin esto, un servidor desplegado arranca en `local`: muestra el detalle técnico
 de los errores y trae `root` sin contraseña y `admin`/`admin123` por defecto.
-Tres formas, de la más fiable a la menos fiable:
 
-**1. En el panel de cPanel (recomendada).** *Select PHP Version → Options →
-Environment Variables*:
+**Opción 1 — la clave `env` de `config/config.local.php` (recomendada).**
+ junto con las credenciales, en el archivo que ya hay que crear:
 
+```php
+return [
+    'env' => 'desarrollo',
+    'db' => [ /* … */ ],
+    'auth' => [ /* … */ ],
+    'fel' => [ /* … */ ],
+];
 ```
-APP_ENV = desarrollo
-```
 
-Escribe en el pool de PHP, así que `getenv()` la ve siempre. No toca ningún
-archivo del repositorio y sobrevive a un `git pull` o a un redeploy.
+Tres ventajas frente a las otras: no depende de Apache ni de que `mod_env` esté
+compilado, no hay que tocar ningún archivo versionado, y **sobrevive a los
+despliegues**, porque `config.local.php` está en `.gitignore` y ningún `git
+pull` lo toca.
 
-**2. `SetEnv` en `public/.htaccess`, solo en el servidor.** Descomente el bloque
-que hay al principio de ese archivo:
+**Opción 2 — `SetEnv` en `public/.htaccess`, solo en el servidor.**
+Descomente el bloque que hay al principio de ese archivo:
 
 ```apache
 <IfModule mod_env.c>
@@ -149,27 +155,32 @@ que hay al principio de ese archivo:
 </IfModule>
 ```
 
-Apache expone lo que fija con `SetEnv` en `$_SERVER`, y `App\Core\Env` lo lee
+Apache publica en `$_SERVER` lo que fija con `SetEnv`, y `App\Core\Env` lo lee
 desde ahí, de modo que **funciona incluso con PHP como FPM o LSAPI**, donde
 `getenv()` no lo vería. Es justo el caso que fallaba en silencio antes de que
-`config/config.php` dejara de leer `getenv()` directamente: `config.php` no veía
-el valor, resolvía `local`, y la API arrancaba con las credenciales por defecto
-de `local` y los errores a la vista, sin dar ningún aviso.
+`config/config.php` dejara de leer `getenv()` directamente.
 
-El precio de esta opción es que un redeploy sobrescribe el archivo. Por eso está
-comentada en el repositorio y no activa: si lo estuviera, el XAMPP local dejaría
-de mostrar errores, que es justo lo que se quiere en un escritorio.
+El precio es que `public/.htaccess` **está versionado**: cada despliegue lo
+sobrescribe y hay que descomentar la línea de nuevo. Si el hosting ofrece *Git
+Version Control* con "Deploy HEAD", es probable que pase.
 
-**3. Variables por entorno**, mismo mecanismo que 1:
+**Opción 3 — *Select PHP Version → Options → Environment Variables*.**
 
 ```
-DB_HOST=localhost
-DB_NAME=api_fel
-DB_USER=usuario_app
-DB_PASS=clave_secreta
-API_USER=usuario_api
-API_PASS=clave_api
+APP_ENV = desarrollo
 ```
+
+Escribe en el pool de PHP, así que `getenv()` la ve siempre y también sobrevive
+a los despliegues. **No está disponible en todos los hostings**; si su panel no
+lo ofrece, use la opción 1 o la 2.
+
+En las tres, la variable de entorno tiene prioridad sobre la clave `env` del
+archivo local, de modo que un operador puede cambiar de entorno sin editar
+archivos si el panel se lo permite.
+
+Las variables `DB_*` y `API_*` del §2.3 se fijan del mismo modo, pero en un
+hosting sin *Environment Variables* conviene declararlas en el mismo
+`config.local.php`, en las secciones `db` y `auth`.
 
 **Compruebe que funcionó.** No sirve mirar el cuerpo de un `400` de validación:
 es idéntico en los dos entornos. Lo que sí distingue `local` de `desarrollo` es la
@@ -185,8 +196,7 @@ curl -i -u USUARIO:CLAVE -H "Origin: http://localhost:5173" \
 - **No aparece** `Access-Control-Allow-Origin` → el entorno es `desarrollo`. Es lo
   correcto: no se permite ningún origen.
 - **Aparece** con ese valor → el entorno sigue siendo `local` y la variable no
-  llegó. Revise que `mod_env` esté disponible y que la instrucción esté
-  descomentada.
+  llegó.
 
 ---
 
