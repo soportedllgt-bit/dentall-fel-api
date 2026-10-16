@@ -26,13 +26,29 @@ declare(strict_types=1);
 /**
  * Nombre del entorno activo.
  *
- * Se resuelve leyendo la variable de entorno `APP_ENV`. Si no está definida,
- * se asume `local`, que es el comportamiento seguro para desarrollo.
+ * Se delega en `App\Core\Env` y no en un `getenv()` directo a propósito.
+ * `Env::get()` consulta `getenv()`, `$_ENV` y `$_SERVER`, y esa tercera fuente
+ * es la que hace funcionar la instrucción `SetEnv APP_ENV desarrollo` de un
+ * `.htaccess`: Apache expone lo que fija con `SetEnv` en `$_SERVER`, pero no
+ * necesariamente en el entorno del proceso cuando PHP corre como FPM o LSAPI.
  *
- * @var string
+ * Leyendo solo `getenv()`, este archivo habría resuelto `local` en un servidor
+ * que sí tiene `APP_ENV=desarrollo`, sin ningún aviso: la API habría arrancado
+ * con `root` sin contraseña y `admin`/`admin123` por defecto, y con el detalle
+ * técnico de los errores visible en las respuestas.
+ *
+ * `Env` no tiene dependencias y este archivo lo carga él mismo con
+ * `require_once`, en lugar de fiarse del autoloader: `config.php` se incluye y
+ * se examina por separado, sin arrancar la aplicación, y debe seguir siendo
+ * legible así. La comprobación previa evita cargarlo dos veces cuando el
+ * autoloader de la aplicación ya lo trajo.
+ *
+ * @var string `local`, `desarrollo` o `produccion`.
  */
-$env = getenv('APP_ENV');
-$env = (is_string($env) && $env !== '') ? strtolower(trim($env)) : 'local';
+if (!class_exists('App\Core\Env', true)) {
+    require_once __DIR__ . '/../app/Core/Env.php';
+}
+$env = App\Core\Env::appEnv();
 
 /**
  * Definición de configuración por entorno.

@@ -1,4 +1,35 @@
 # =============================================================================
+# Entorno de ejecución
+# =============================================================================
+#
+# Está DESACTIVADO a propósito. Si se activara en el repositorio, el entorno de
+# trabajo local del programador dejaría de mostrar el detalle de los errores, que
+# es justo lo que se necesita en un escritorio. En un servidor desplegado hay que
+# activarlo, y hay tres formas, de la más fiable a la menos fiable:
+#
+# 1. cPanel → Select PHP Version → Options → Environment Variables
+#    APP_ENV = desarrollo
+#    Escribe en el pool de PHP, así que `getenv()` la ve siempre. Es la
+#    recomendada: no toca ningún archivo del repositorio y sobrevive a un
+#    `git pull` o a un redeploy.
+#
+# 2. Esta misma instruccion, descomentada, en el servidor:
+#        SetEnv APP_ENV desarrollo
+#    Apache expone lo que fija con `SetEnv` en `$_SERVER`, y `App\Core\Env` lo
+#    lee desde ahí, de modo que funciona incluso con PHP como FPM o LSAPI, donde
+#    `getenv()` no lo vería. El precio es que un redeploy sobrescribe el archivo.
+#
+# 3. La variable DB_* / API_* del §2.3 del README, por el mismo mecanismo.
+#
+# Valores: `local`, `desarrollo` o `produccion`. Cualquier otro se degrada a
+# `local`. NUNCA `produccion` con credenciales de feltest: `produccion` apunta al
+# servicio real de facturación y emitiría facturas de verdad ante la SAT.
+#
+#<IfModule mod_env.c>
+#    SetEnv APP_ENV desarrollo
+#</IfModule>
+
+# =============================================================================
 # Front Controller de la API RESTful Items
 # =============================================================================
 

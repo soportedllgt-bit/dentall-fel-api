@@ -109,18 +109,84 @@ accesible por HTTP. Si además se dejara el document root en la raíz, ese
 `.htaccess` pasa a ser la única barrera y dependería de que `AllowOverride`
 esté activo en toda la ruta.
 
-**El nombre de la base de datos.** `sql/schema.sql` y las cuatro migraciones
-llevan escrito `USE fel_dentall_api;`, y el esquema empieza con
-`CREATE DATABASE IF NOT EXISTS`. En un hosting compartido casi nunca se tiene
-permiso para crear bases, y un `USE` a una base inexistente aborta el
-importación. Si la base se llama de otra forma:
+El nombre de la base de datos **no tiene por qué ser `fel_dentall_api`**, y sí lo
+es en la mayoría de los hostings, pero conviene confirmarlo:
 
-1. Abra los cuatro `.sql` y sustituya `fel_dentall_api` por el nombre real.
-2. Comente el `CREATE DATABASE` de `sql/schema.sql` (líneas 25-29).
-3. El nombre **también** va en la configuración: sección `db.database`.
+- Si la base se llama `fel_dentall_api`, los cinco `.sql` se importan **sin tocar
+  nada**: `schema.sql` y las cuatro migraciones ya llevan ese nombre escrito.
+- Si se llama de otra forma, sustituya `fel_dentall_api` en los cinco archivos y
+  comenta el `CREATE DATABASE` de `sql/schema.sql` (líneas 25-29), porque en un
+  hosting compartido casi nunca hay permiso para crear bases y un `USE` a una
+  base inexistente aborta la importación.
+- El nombre **también** va en la configuración: sección `db.database`. No basta
+  con cambiarlo en el SQL.
 
 Los cinco archivos son idempotentes, de modo que reimportarlos no rompe nada.
 Al terminar deben existir `items`, `gf_orders` y `schema_migrations`.
+
+### 2.6. Fijar `APP_ENV` en el servidor
+
+Sin esto, un servidor desplegado arranca en `local`: muestra el detalle técnico
+de los errores y trae `root` sin contraseña y `admin`/`admin123` por defecto.
+Tres formas, de la más fiable a la menos fiable:
+
+**1. En el panel de cPanel (recomendada).** *Select PHP Version → Options →
+Environment Variables*:
+
+```
+APP_ENV = desarrollo
+```
+
+Escribe en el pool de PHP, así que `getenv()` la ve siempre. No toca ningún
+archivo del repositorio y sobrevive a un `git pull` o a un redeploy.
+
+**2. `SetEnv` en `public/.htaccess`, solo en el servidor.** Descomente el bloque
+que hay al principio de ese archivo:
+
+```apache
+<IfModule mod_env.c>
+    SetEnv APP_ENV desarrollo
+</IfModule>
+```
+
+Apache expone lo que fija con `SetEnv` en `$_SERVER`, y `App\Core\Env` lo lee
+desde ahí, de modo que **funciona incluso con PHP como FPM o LSAPI**, donde
+`getenv()` no lo vería. Es justo el caso que fallaba en silencio antes de que
+`config/config.php` dejara de leer `getenv()` directamente: `config.php` no veía
+el valor, resolvía `local`, y la API arrancaba con las credenciales por defecto
+de `local` y los errores a la vista, sin dar ningún aviso.
+
+El precio de esta opción es que un redeploy sobrescribe el archivo. Por eso está
+comentada en el repositorio y no activa: si lo estuviera, el XAMPP local dejaría
+de mostrar errores, que es justo lo que se quiere en un escritorio.
+
+**3. Variables por entorno**, mismo mecanismo que 1:
+
+```
+DB_HOST=localhost
+DB_NAME=api_fel
+DB_USER=usuario_app
+DB_PASS=clave_secreta
+API_USER=usuario_api
+API_PASS=clave_api
+```
+
+**Compruebe que funcionó.** No sirve mirar el cuerpo de un `400` de validación:
+es idéntico en los dos entornos. Lo que sí distingue `local` de `desarrollo` es la
+lista blanca de CORS, que en `local` incluye `http://localhost:5173` y en
+`desarrollo` está vacía, y `Response` solo emite `Access-Control-Allow-Origin`
+para orígenes que estén en ella:
+
+```bash
+curl -i -u USUARIO:CLAVE -H "Origin: http://localhost:5173" \
+     https://fel.dentallgt.com/api/items
+```
+
+- **No aparece** `Access-Control-Allow-Origin` → el entorno es `desarrollo`. Es lo
+  correcto: no se permite ningún origen.
+- **Aparece** con ese valor → el entorno sigue siendo `local` y la variable no
+  llegó. Revise que `mod_env` esté disponible y que la instrucción esté
+  descomentada.
 
 ---
 

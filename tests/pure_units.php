@@ -793,22 +793,37 @@ echo "\n== Capa de sobreescritura local ==\n";
 // propio `__DIR__`. Así no se toca la configuración real de la máquina.
 
 $tmpDir = sys_get_temp_dir() . '/fel-config-' . bin2hex(random_bytes(4));
-mkdir($tmpDir, 0700, true);
-copy(dirname(__DIR__) . '/config/config.php', $tmpDir . '/config.php');
+mkdir($tmpDir . '/config', 0700, true);
+mkdir($tmpDir . '/app/Core', 0700, true);
+// Se replica la estructura real del proyecto: `config/config.php` busca a
+// `../app/Core/Env.php`, de modo que un temporal con otra forma mentiría.
+copy(dirname(__DIR__) . '/config/config.php', $tmpDir . '/config/config.php');
+copy(dirname(__DIR__) . '/app/Core/Env.php', $tmpDir . '/app/Core/Env.php');
 
-$configEn = static function (string $entorno, string $cuerpoLocal) use ($tmpDir): array {
+$configEn = static function (string $entorno, string $cuerpoLocal, bool $soloEnServer = false) use ($tmpDir): array {
     $previo = getenv('APP_ENV');
-    putenv('APP_ENV=' . $entorno);
-    file_put_contents($tmpDir . '/config.local.php', $cuerpoLocal);
+    putenv('APP_ENV');
+    unset($_ENV['APP_ENV'], $_SERVER['APP_ENV']);
+
+    if ($soloEnServer) {
+        // Reproduce lo que hace `SetEnv APP_ENV desarrollo` en un `.htaccess`:
+        // la variable llega en `$_SERVER`, no en el entorno del proceso.
+        $_SERVER['APP_ENV'] = $entorno;
+    } elseif ($entorno !== '') {
+        putenv('APP_ENV=' . $entorno);
+    }
+
+    file_put_contents($tmpDir . '/config/config.local.php', $cuerpoLocal);
 
     try {
-        return require $tmpDir . '/config.php';
+        return require $tmpDir . '/config/config.php';
     } finally {
         if ($previo === false) {
             putenv('APP_ENV');
         } else {
             putenv('APP_ENV=' . $previo);
         }
+        unset($_ENV['APP_ENV'], $_SERVER['APP_ENV']);
     }
 };
 
@@ -876,8 +891,53 @@ $assert(
     $configEn('desarrollo', "<?php return ['cors' => ['allowed_origins' => []]];")['cors']['allowed_origins'] === []
 );
 
-unlink($tmpDir . '/config.local.php');
-unlink($tmpDir . '/config.php');
+// -----------------------------------------------------------------------------
+echo "\n== Configuración del .htaccess ==\n";
+
+// Un `.htaccess` no fija variables en el entorno del proceso: las publica en
+// `$_SERVER`. Estos casos reproducen exactamente eso, con `putenv()` limpio,
+// porque es la forma en que se despliega en un hosting compartido y la que
+// fallaba en silencio: `config/config.php` leía solo `getenv()`, no veía el
+// valor y resolvía `local`, con `root` sin contraseña y errores visibles.
+
+$desdeHtaccess = $configEn('desarrollo', "<?php return [];", true);
+$assert(
+    'htaccess: APP_ENV llegando solo por $_SERVER sí resuelve desarrollo',
+    $desdeHtaccess['env'] === 'desarrollo',
+    'env=' . $desdeHtaccess['env']
+);
+$assert(
+    'htaccess: y por tanto toma los endpoints del sandbox',
+    strpos((string) $desdeHtaccess['fel']['endpoint_url'], 'feltestSB') !== false
+);
+$assert(
+    'htaccess: no arranca con las credenciales por defecto de local',
+    (new AppConfig($desdeHtaccess))->getAuthConfig()['username'] === ''
+        && (new AppConfig($desdeHtaccess))->getDbConfig()['username'] === ''
+);
+$assert(
+    'htaccess: y tampoco muestra el detalle técnico de los errores',
+    (new AppConfig($desdeHtaccess))->shouldDisplayErrors() === false
+);
+
+$produccionDesdeHtaccess = $configEn('produccion', "<?php return [];", true);
+$assert(
+    'htaccess: produccion por $_SERVER sí llega al servicio real',
+    strpos((string) $produccionDesdeHtaccess['fel']['endpoint_url'], '/fel/') !== false
+);
+
+$sinNada = $configEn('', "<?php return [];");
+$assert(
+    'htaccess: sin APP_ENV se resuelve local, no produccion',
+    $sinNada['env'] === 'local'
+);
+
+unlink($tmpDir . '/config/config.local.php');
+unlink($tmpDir . '/config/config.php');
+unlink($tmpDir . '/app/Core/Env.php');
+rmdir($tmpDir . '/app/Core');
+rmdir($tmpDir . '/app');
+rmdir($tmpDir . '/config');
 rmdir($tmpDir);
 
 // -----------------------------------------------------------------------------
