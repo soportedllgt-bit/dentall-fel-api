@@ -1,0 +1,43 @@
+# =============================================================================
+# Redirección opcional hacia el front controller
+# =============================================================================
+#
+# Este archivo SOLO es necesario cuando el `DocumentRoot` de Apache apunta a la
+# raíz del proyecto (por ejemplo `C:\xampp_lite\www\fel-dentall`) en lugar de a
+# la carpeta `public/`.
+#
+# Si el DocumentRoot ya apunta a `public/`, este archivo es innecesario porque
+# `public/.htaccess` resuelve el reescritado por su cuenta.
+#
+# En el caso de XAMPP, donde el DocumentRoot es `C:\xampp_lite\www`, este archivo
+# hace que tanto /fel-dentall/api/items como /fel-dentall/public/api/items
+# lleguen al mismo index.php.
+# =============================================================================
+
+# Bloquea el listado de directorios del proyecto completo.
+Options -Indexes
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # Deniega el acceso directo a las carpetas internas de la aplicación.
+    # Deben servirse únicamente a través del front controller.
+    RewriteRule ^(app|config|sql|docs)(/|$) - [F,L]
+
+    # No reescribir archivos ni directorios físicos existentes (favicon, etc.).
+    RewriteCond %{REQUEST_FILENAME} -f [OR]
+    RewriteCond %{REQUEST_FILENAME} -d
+    RewriteRule ^ - [L]
+
+    # Todo lo demás se resuelve en el front controller de public/.
+    RewriteRule ^ public/index.php [QSA,L]
+</IfModule>
+
+<IfModule mod_headers.c>
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set X-Frame-Options "DENY"
+</IfModule>
+
+<FilesMatch "^\.">
+    Require all denied
+</FilesMatch>

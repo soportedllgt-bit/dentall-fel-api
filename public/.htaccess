@@ -1,0 +1,36 @@
+# =============================================================================
+# Front Controller de la API RESTful Items
+# =============================================================================
+
+# Bloquea el listado de directorios: sin esta directiva, un visitante podría
+# enumerar los archivos existentes bajo /public/.
+Options -Indexes
+
+# Redirige todas las peticiones que no correspondan a un archivo o directorio
+# físico hacia index.php, preservando la query string original.
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # No reescribir si el recurso solicitado existe en disco.
+    RewriteCond %{REQUEST_FILENAME} -f [OR]
+    RewriteCond %{REQUEST_FILENAME} -d
+    RewriteRule ^ - [L]
+
+    # Front Controller: el resto de rutas se resuelven en PHP.
+    RewriteRule ^ index.php [QSA,L]
+</IfModule>
+
+# Las cabeceras de seguridad (X-Content-Type-Options, X-Frame-Options,
+# Referrer-Policy) las emite la propia aplicación en App\Core\Response, de modo
+# que no se duplican aquí. Si alguna vez se sirve un archivo estático desde este
+# directorio, basta con descomentar el bloque siguiente (requiere mod_headers):
+#
+# <IfModule mod_headers.c>
+#     Header always set X-Content-Type-Options "nosniff"
+#     Header always set X-Frame-Options "DENY"
+# </IfModule>
+
+# Deniega el acceso a archivos ocultos (.env, .git, etc.).
+<FilesMatch "^\.">
+    Require all denied
+</FilesMatch>

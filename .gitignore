@@ -1,0 +1,108 @@
+# =============================================================================
+# fel-dentall — Archivos excluidos del control de versiones
+# =============================================================================
+#
+# Este archivo es la primera barrera de protección de información sensible.
+# La segunda es `.htaccess`, que impide el acceso por HTTP a `app/`, `config/`,
+# `sql/` y `docs/`. Las dos deben mantenerse: la primera protege el repositorio,
+# la segunda protege el servidor web.
+#
+# Regla general: si un archivo contiene credenciales, datos de un tercero o
+# material marcado como confidencial, NUNCA entra al repositorio.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Documentación confidencial
+# -----------------------------------------------------------------------------
+# La guía operativa del proveedor de facturación electrónica está marcada
+# "CONFIDENCIAL - USO EXCLUSIVO EMISOR". Se mantiene en el disco para poder
+# consultarla durante el desarrollo, pero no se versiona.
+docs/*.pdf
+docs/**/*.pdf
+
+# Si alguna vez se recibe material interno en otro formato, también queda fuera.
+docs/*.doc
+docs/*.docx
+docs/*.xls
+docs/*.xlsx
+
+# -----------------------------------------------------------------------------
+# Credenciales y configuración local
+# -----------------------------------------------------------------------------
+# La configuración por entorno vive en config/config.php con valores por defecto
+# de desarrollo. Cualquier sobreescritura local nunca se versiona: así, un
+# `DB_PASS` real no puede terminar en un commit.
+config/config.local.php
+config/*.local.php
+
+# Variables de entorno, si en el futuro se adopta un archivo .env.
+.env
+.env.*
+!.env.example
+
+# Credenciales de GUATEFACTURAS. Deben fijarse con `set API_...` en el sistema,
+# nunca guardarse en un archivo del proyecto.
+*.credentials
+credentials.*
+secrets.*
+
+# -----------------------------------------------------------------------------
+# Resultados de pruebas
+# -----------------------------------------------------------------------------
+# Los informes de Newman contienen los cuerpos completos de las respuestas de
+# la API. En un contexto de facturación electrónica eso incluye NIT, nombres y
+# datos fiscales de clientes reales.
+report.html
+newman-report/
+tests/reports/
+*.report.html
+
+# Fixtures capturados contra el Web Service real. Siempre scrubbeados antes de
+# usarlos en pruebas; si el scrub no es posible, no se versionan.
+tests/fixtures/real/
+tests/fixtures/*.raw.xml
+
+# -----------------------------------------------------------------------------
+# Dependencias y herramientas
+# -----------------------------------------------------------------------------
+vendor/
+node_modules/
+composer.lock.bak
+
+# -----------------------------------------------------------------------------
+# Sistema operativo
+# -----------------------------------------------------------------------------
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# -----------------------------------------------------------------------------
+# Editores e IDE
+# -----------------------------------------------------------------------------
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+*.swp
+*.swo
+*~
+
+# -----------------------------------------------------------------------------
+# Logs y temporales
+# -----------------------------------------------------------------------------
+logs/
+*.log
+*.tmp
+*.bak
+*.orig
+*.rej
+.cache/
+
+# -----------------------------------------------------------------------------
+# Sistema de la API
+# -----------------------------------------------------------------------------
+# La cola de trabajo (si se adopta en el futuro) no debe persistir en el disco.
+queue/
+tmp/
