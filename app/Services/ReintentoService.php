@@ -142,7 +142,7 @@ final class ReintentoService
             $rawResult = $this->client->generaDocumento(
                 $order->getDteType(),
                 $xml,
-                GuatefacturasConfig::RESPONSE_SUMMARY
+                $order->getResponseType()
             );
         } catch (ProviderBusinessException $exception) {
             // El proveedor respondió y rechazó. Con el error 82 puede que el

@@ -279,17 +279,25 @@ final class GfOrder
      *
      * @var string|null
      */
-    private $invoicedAt;
+private $invoicedAt;
 
     /**
-     * @param string                $uuid       Identificador público UUID v4.
-     * @param string                $orderCode  Código único de la orden del POS.
-     * @param int                   $dteType    Código numérico del tipo de DTE.
+     * Modo de respuesta solicitado al proveedor.
+     *
+     * @var string `R` o `D`.
+     */
+    private $responseType = 'R';
+
+    /**
+     * @param string                $uuid       Identificador pǧblico UUID v4.
+     * @param string                $orderCode  C��digo ǧnico de la orden del POS.
+     * @param int                   $dteType    C��digo numǸrico del tipo de DTE.
      * @param string                $status     Estado inicial.
      * @param array<string, mixed>  $payload    Orden normalizada.
      * @param array<string, int>    $totals     Totales en centavos.
-     * @param int                   $itemCount  Número de líneas.
-     * @param string                $createdAt  Fecha de recepción en UTC.
+     * @param int                   $itemCount  Nǧmero de l��neas.
+     * @param string                $createdAt  Fecha de recepci��n en UTC.
+     * @param string                $responseType Modo de respuesta al proveedor.
      */
     public function __construct(
         string $uuid,
@@ -299,7 +307,8 @@ final class GfOrder
         array $payload,
         array $totals,
         int $itemCount,
-        string $createdAt
+        string $createdAt,
+        string $responseType = 'R'
     ) {
         $this->id            = null;
         $this->uuid          = $uuid;
@@ -321,6 +330,7 @@ final class GfOrder
         $this->ambiguous     = false;
         $this->lastErrorCode = null;
         $this->invoicedAt    = null;
+        $this->responseType  = $responseType === '' ? 'R' : $responseType;
     }
 
     /**
@@ -373,6 +383,10 @@ final class GfOrder
         $order->annulmentResponse = self::nullableString($row, 'annulment_response');
         $order->annulledAt      = self::nullableString($row, 'annulled_at');
         $order->invoicedAt      = self::nullableString($row, 'invoiced_at');
+        $order->responseType    = strtoupper((string) ($row['response_type'] ?? 'R'));
+        if ($order->responseType !== 'R' && $order->responseType !== 'D') {
+            $order->responseType = 'R';
+        }
 
         return $order;
     }
@@ -527,6 +541,16 @@ final class GfOrder
     public function getDteType(): int
     {
         return $this->dteType;
+    }
+
+    /**
+     * Devuelve el modo de respuesta solicitado al proveedor.
+     *
+     * @return string `R` (resumen) o `D` (detalle).
+     */
+    public function getResponseType(): string
+    {
+        return $this->responseType;
     }
 
     /**

@@ -34,7 +34,7 @@ final class GfOrderRepository
         totals_tax, totals_total, item_count, serie, preimpreso, autorizacion,
         provider_response, sent_xml, error_message, ambiguous, last_error_code,
         attempts, created_at, updated_at, invoiced_at, annulment_reason,
-        annulment_response, annulled_at';
+        annulment_response, annulled_at, response_type';
 
     /**
      * Fábrica de conexiones.
@@ -77,12 +77,12 @@ final class GfOrderRepository
                     uuid, order_code, dte_type, status, payload,
                     totals_gross, totals_discount, totals_exempt, totals_others,
                     totals_net, totals_tax, totals_total, item_count,
-                    attempts, created_at, updated_at
+                    attempts, response_type, created_at, updated_at
                 ) VALUES (
                     :uuid, :order_code, :dte_type, :status, :payload,
                     :totals_gross, :totals_discount, :totals_exempt, :totals_others,
                     :totals_net, :totals_tax, :totals_total, :item_count,
-                    :attempts, :created_at, :updated_at
+                    :attempts, :response_type, :created_at, :updated_at
                 )';
 
         $this->db->getConnection()->prepare($sql)->execute([
@@ -100,6 +100,7 @@ final class GfOrderRepository
             ':totals_total'   => self::centsOf($totals, 'total'),
             ':item_count'     => $order->toArrayPublic()['lineas'],
             ':attempts'       => $order->getAttempts(),
+            ':response_type'  => $order->getResponseType(),
             ':created_at'     => gmdate('Y-m-d H:i:s'),
             ':updated_at'     => gmdate('Y-m-d H:i:s'),
         ]);

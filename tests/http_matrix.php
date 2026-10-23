@@ -482,6 +482,11 @@ $body     = $decodeBody($response['body']);
 $assert('campo no permitido en la orden -> 400', $response['status'] === 400, "status={$response['status']}");
 $assert('el error nombra el campo no permitido', isset($body['errors']['campoRaro']), 'body=' . $response['body']);
 
+$response = $factOrders('HTTP-RESP-' . bin2hex(random_bytes(3)), ['tipo_respuesta' => 'X']);
+$body     = $decodeBody($response['body']);
+$assert('tipo_respuesta inválido -> 400', $response['status'] === 400, "status={$response['status']} body=" . $response['body']);
+$assert('el error nombra tipo_respuesta', isset($body['errors']['tipo_respuesta']), 'body=' . $response['body']);
+
 // Una orden incompleta informa de todos los campos que faltan de una vez, para
 // que el POS no tenga que descubrir los errores de uno en uno.
 $incompleta = $decodeBody($factOrders('HTTP-INCOMP-' . bin2hex(random_bytes(3)), [

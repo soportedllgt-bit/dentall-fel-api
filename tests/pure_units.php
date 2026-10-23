@@ -1131,6 +1131,39 @@ $ordenImprecisa['carrito'] = [
 
 $assert('orden: rechaza un precio con demasiada precisión', !OrderPayload::fromArray($ordenImprecisa, $billingRules)['ok']);
 
+// --- Modo de respuesta solicitado al proveedor ---------------------------
+$ordenDetalle = $ordenValida;
+$ordenDetalle['tipo_respuesta'] = 'D';
+$parsedDetalle = OrderPayload::fromArray($ordenDetalle, $billingRules);
+$assert('orden: acepta tipo_respuesta D', $parsedDetalle['ok'], print_r($parsedDetalle['errors'] ?? null, true));
+$assert('orden: conserva el modo detalle', $parsedDetalle['ok'] && $parsedDetalle['order']->responseType() === 'D');
+$assert('orden: serializa tipo_respuesta en el payload', $parsedDetalle['ok'] && ($parsedDetalle['order']->toArray()['tipo_respuesta'] ?? null) === 'D');
+
+$ordenResumen = $ordenValida;
+$ordenResumen['tipo_respuesta'] = 'r';
+$parsedResumen = OrderPayload::fromArray($ordenResumen, $billingRules);
+$assert('orden: normaliza tipo_respuesta a mayúsculas', $parsedResumen['ok'] && $parsedResumen['order']->responseType() === 'R');
+
+$ordenRespuestaInvalida = $ordenValida;
+$ordenRespuestaInvalida['tipo_respuesta'] = 'X';
+$assert('orden: rechaza un tipo_respuesta inválido', !OrderPayload::fromArray($ordenRespuestaInvalida, $billingRules)['ok']);
+
+$ordenRespuestaVacia = $ordenValida;
+$ordenRespuestaVacia['tipo_respuesta'] = '';
+$assert('orden: rechaza un tipo_respuesta vacío', !OrderPayload::fromArray($ordenRespuestaVacia, $billingRules)['ok']);
+
+$ordenRespuestaNoString = $ordenValida;
+$ordenRespuestaNoString['tipo_respuesta'] = 5;
+$assert('orden: rechaza un tipo_respuesta no textual', !OrderPayload::fromArray($ordenRespuestaNoString, $billingRules)['ok']);
+
+$ordenSinRespuesta = $ordenValida;
+$parsedSin = OrderPayload::fromArray($ordenSinRespuesta, $billingRules);
+$assert('orden: sin tipo_respuesta usa R por defecto', $parsedSin['ok'] && $parsedSin['order']->responseType() === 'R');
+
+$ordenCampoRaro = $ordenValida;
+$ordenCampoRaro['tipo_respuesta_extra'] = 'D';
+$assert('orden: rechaza un campo tipo_respuesta mal escrito', !OrderPayload::fromArray($ordenCampoRaro, $billingRules)['ok']);
+
 $ordenConCampoExtra = $ordenValida;
 $ordenConCampoExtra['cliente'] = ['apellido' => 'Pérez'];
 

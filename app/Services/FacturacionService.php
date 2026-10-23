@@ -205,7 +205,8 @@ final class FacturacionService
                 $order->toArray(),
                 self::totalsInCents($order),
                 $order->totals()->lineCount(),
-                gmdate('Y-m-d H:i:s')
+                gmdate('Y-m-d H:i:s'),
+                $order->responseType()
             );
 
             $stored = $this->repository->create($entity);
@@ -238,7 +239,7 @@ final class FacturacionService
             $rawResult = $this->client->generaDocumento(
                 $order->dteType(),
                 $xml,
-                GuatefacturasConfig::RESPONSE_SUMMARY
+                $order->responseType()
             );
         } catch (ProviderBusinessException $exception) {
             // Rechazo limpio: el proveedor respondió y no emitió. Los datos son
@@ -379,9 +380,10 @@ final class FacturacionService
             $result->autorizacion()
         ));
 
-        // El XML firmado se conserva íntegro en la base de datos; incluirlo en
-        // cada respuesta lo multiplicaría por cada reintento del POS. Se indica
-        // únicamente si está disponible.
+// El XML firmado se devuelve únicamente cuando el POS lo pidió con
+        // `tipo_respuesta: "D"`; en modo resumen es `null`. En `D` el digest lo
+        // incluye completo, que es lo que el POS pidió. No se reenvía en cada
+        // reintento del digest: el reintento devuelve el digest del nuevo intento.
         $digest['xml_firmado_disponible'] = $result->signedXml() !== null;
 
         return $digest;

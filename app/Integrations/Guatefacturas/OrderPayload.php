@@ -134,6 +134,16 @@ final class OrderPayload
     private $rules;
 
     /**
+     * Modo de respuesta solicitado al proveedor.
+     *
+     * `R` (resumen): serie, preimpreso, autorización y referencia.
+     * `D` (detalle): lo mismo más el XML DTE firmado por SAT.
+     *
+     * @var string `R` o `D`.
+     */
+    private $responseType = 'R';
+
+    /**
      * Construye la orden a partir de una entrada ya validada.
      *
      * @param array<string, mixed> $input  Datos normalizados.
@@ -148,6 +158,7 @@ final class OrderPayload
         $this->invoicing  = $input['facturacion'];
         $this->delivery   = $input['entrega'];
         $this->dteType    = (int) $input['tipo_documento'];
+        $this->responseType = (string) $input['tipo_respuesta'];
         $this->lines      = $input['carrito'];
         $this->totals     = new Totals($this->lines);
         $this->rules      = $rules;
@@ -209,7 +220,7 @@ final class OrderPayload
 
         $unexpected = array_diff(
             array_keys($input),
-            ['codigo_orden', 'cliente', 'carrito', 'facturacion', 'entrega']
+            ['codigo_orden', 'cliente', 'carrito', 'facturacion', 'entrega', 'tipo_respuesta']
         );
 
         foreach ($unexpected as $field) {
@@ -258,7 +269,18 @@ final class OrderPayload
             }
         }
 
-        // --- Carrito ---------------------------------------------------------
+// --- Tipo de respuesta solicitada al proveedor ---------------------------
+        if (array_key_exists('tipo_respuesta', $input)) {
+            $value = $input['tipo_respuesta'];
+
+            if (!is_string($value) || trim($value) === '') {
+                $add('tipo_respuesta', 'El campo "tipo_respuesta" debe ser una cadena no vacía.');
+            } elseif (!in_array(strtoupper(trim($value)), ['R', 'D'], true)) {
+                $add('tipo_respuesta', 'El campo "tipo_respuesta" debe ser "R" (resumen) o "D" (detalle).');
+            }
+        }
+
+// --- Carrito ---------------------------------------------------------
         if (array_key_exists('carrito', $input)) {
             $errors += self::validateCart($input['carrito'], $rules, $add);
         }
@@ -267,8 +289,6 @@ final class OrderPayload
     }
 
     /**
-     * Valida el bloque `cliente`.
-     *
      * @param mixed         $customer Datos recibidos.
      * @param array<string, mixed> $rules   Reglas de facturación.
      * @param callable      $add      Acumulador de errores.
@@ -555,6 +575,7 @@ final class OrderPayload
         return [
             'codigo_orden'   => trim((string) $input['codigo_orden']),
             'tipo_documento' => DteType::resolve($invoicing['tipo_documento'] ?? null),
+            'tipo_respuesta' => strtoupper(trim((string) ($input['tipo_respuesta'] ?? 'R'))),
             'cliente'        => [
                 'nit'       => trim((string) $customer['nit']),
                 'nombre'    => trim((string) $customer['nombre']),
@@ -635,6 +656,16 @@ final class OrderPayload
     }
 
     /**
+     * Devuelve el modo de respuesta solicitado al proveedor.
+     *
+     * @return string `R` (resumen) o `D` (detalle, con XML firmado).
+     */
+    public function responseType(): string
+    {
+        return $this->responseType;
+    }
+
+    /**
      * Devuelve los datos del cliente.
      *
      * @return array<string, string> Datos normalizados.
@@ -704,6 +735,7 @@ final class OrderPayload
         return [
             'codigo_orden'   => $this->orderCode,
             'tipo_documento' => DteType::toCode($this->dteType),
+            'tipo_respuesta' => $this->responseType,
             'cliente'        => $this->customer,
             'facturacion'    => $this->invoicing,
             'entrega'        => $this->delivery,

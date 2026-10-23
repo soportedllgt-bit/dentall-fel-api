@@ -404,6 +404,7 @@ Migraciones aplicadas:
 | `001_gf_orders.sql` | Crea `gf_orders` (órdenes de facturación) y `schema_migrations`. |
 | `002_gf_orders_contingencia.sql` | Añade `ambiguous` y `last_error_code` para distinguir el desenlace del último intento. |
 | `003_gf_orders_anulacion.sql` | Añade `annulled_at`, `annulment_reason` y `annulment_response`. |
+| `004_gf_orders_response_type.sql` | Añade `response_type` (`R`/`D`) para el modo de respuesta al proveedor. |
 
 ```bash
 mysql\bin\mysql.exe -u root fel_dentall_api < sql\migrations\001_gf_orders.sql
@@ -1001,7 +1002,8 @@ Cuerpo de la petición:
     "direccion": "Zona 5",
     "telefono": "51234567",
     "observaciones": "Entregar en recepción"
-  }
+  },
+  "tipo_respuesta": "R"
 }
 ```
 
